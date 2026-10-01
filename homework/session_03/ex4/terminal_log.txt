@@ -1,0 +1,400 @@
+# ============================================================================
+# Terminal log - Bài 4, Session 03: Nginx chạy song song hai cổng 8080 và 8090
+# Ngày: Fri 2026-10-02 (+0700), khoảng 14:00 đến 14:45
+# Máy cá nhân: Windows Git Bash (prompt "$"), IP công cộng 113.161.72.19
+# Máy chủ: Ubuntu 24.04.3 LTS, hostname halo, IP 103.116.104.228, user devops
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# PHẦN 1 - Đăng nhập và kiểm tra trạng thái ban đầu (máy chủ)
+# ---------------------------------------------------------------------------
+$ ssh -p 2222 -i ~/.ssh/id_ed25519_ptit_s02 devops@103.116.104.228
+Welcome to Ubuntu 24.04.3 LTS (GNU/Linux 6.8.0-87-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+Last login: Thu Oct  1 22:05:17 2026 from 113.161.72.19
+devops@halo:~$ date
+Fri Oct  2 14:03:52 +07 2026
+devops@halo:~$ grep PRETTY_NAME /etc/os-release
+PRETTY_NAME="Ubuntu 24.04.3 LTS"
+devops@halo:~$ nginx -v
+nginx version: nginx/1.24.0 (Ubuntu)
+devops@halo:~$ sudo ufw status verbose
+[sudo] password for devops:
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+2222/tcp                   ALLOW IN    Anywhere
+80/tcp                     ALLOW IN    Anywhere
+2222/tcp (v6)              ALLOW IN    Anywhere (v6)
+80/tcp (v6)                ALLOW IN    Anywhere (v6)
+
+devops@halo:~$ ls -l /etc/nginx/sites-enabled/
+total 0
+lrwxrwxrwx 1 root root 33 Sep 29 20:41 my-web -> /etc/nginx/sites-available/my-web
+
+# ---------------------------------------------------------------------------
+# PHẦN 2 - Kiểm tra cổng 8080 và 8090 còn trống (máy chủ)
+# ---------------------------------------------------------------------------
+devops@halo:~$ sudo ss -tlnp | grep -E ":(8080|8090)"
+devops@halo:~$ echo $?
+1
+devops@halo:~$ sudo ss -tlnp | grep nginx
+LISTEN 0      511            0.0.0.0:80      0.0.0.0:*    users:(("nginx",pid=9766,fd=5),("nginx",pid=9765,fd=5),("nginx",pid=9764,fd=5))
+LISTEN 0      511               [::]:80         [::]:*    users:(("nginx",pid=9766,fd=6),("nginx",pid=9765,fd=6),("nginx",pid=9764,fd=6))
+
+# ---------------------------------------------------------------------------
+# PHẦN 3 - Tạo thư mục mã nguồn, phân quyền và tạo index.html (máy chủ)
+# ---------------------------------------------------------------------------
+devops@halo:~$ sudo mkdir -p /var/www/beta-app/html /var/www/internal-app/html
+devops@halo:~$ sudo chown -R devops:www-data /var/www/beta-app /var/www/internal-app
+devops@halo:~$ sudo find /var/www/beta-app /var/www/internal-app -type d -exec chmod 750 {} +
+devops@halo:~$ nano /var/www/beta-app/html/index.html
+devops@halo:~$ cat /var/www/beta-app/html/index.html
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beta App</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #e8f1fb; color: #1b2a41; margin: 0; padding: 0; }
+    .box { max-width: 640px; margin: 80px auto; padding: 32px; background: #ffffff; border-top: 8px solid #1f6feb; }
+    h1 { color: #1f6feb; margin-top: 0; }
+    .port { display: inline-block; padding: 4px 12px; background: #1f6feb; color: #ffffff; font-weight: bold; }
+    code { background: #eef2f7; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Beta App</h1>
+    <p>Đây là môi trường thử nghiệm Beta, được phục vụ bởi Nginx trên cổng <span class="port">8080</span>.</p>
+    <p>Mã nguồn đặt tại <code>/var/www/beta-app/html/</code>, chạy song song với Internal App (cổng 8090) trên cùng một máy chủ.</p>
+  </div>
+</body>
+</html>
+devops@halo:~$ nano /var/www/internal-app/html/index.html
+devops@halo:~$ cat /var/www/internal-app/html/index.html
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal App</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #fbeee6; color: #3b2314; margin: 0; padding: 0; }
+    .box { max-width: 640px; margin: 80px auto; padding: 32px; background: #ffffff; border-top: 8px solid #d9480f; }
+    h1 { color: #d9480f; margin-top: 0; }
+    .port { display: inline-block; padding: 4px 12px; background: #d9480f; color: #ffffff; font-weight: bold; }
+    code { background: #f7ece4; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Internal App</h1>
+    <p>Đây là môi trường nội bộ, được phục vụ bởi Nginx trên cổng <span class="port">8090</span>.</p>
+    <p>Mã nguồn đặt tại <code>/var/www/internal-app/html/</code>, chạy song song với Beta App (cổng 8080) trên cùng một máy chủ.</p>
+  </div>
+</body>
+</html>
+devops@halo:~$ sudo find /var/www/beta-app /var/www/internal-app -type f -exec chmod 640 {} +
+devops@halo:~$ ls -la /var/www/beta-app/html /var/www/internal-app/html
+/var/www/beta-app/html:
+total 12
+drwxr-x--- 2 devops www-data 4096 Oct  2 14:12 .
+drwxr-x--- 3 devops www-data 4096 Oct  2 14:08 ..
+-rw-r----- 1 devops www-data  995 Oct  2 14:12 index.html
+
+/var/www/internal-app/html:
+total 12
+drwxr-x--- 2 devops www-data 4096 Oct  2 14:13 .
+drwxr-x--- 3 devops www-data 4096 Oct  2 14:08 ..
+-rw-r----- 1 devops www-data  994 Oct  2 14:13 index.html
+devops@halo:~$ wc -c /var/www/beta-app/html/index.html /var/www/internal-app/html/index.html
+ 995 /var/www/beta-app/html/index.html
+ 994 /var/www/internal-app/html/index.html
+1989 total
+devops@halo:~$ stat -c "%a %U:%G %n" /var/www/beta-app /var/www/beta-app/html /var/www/beta-app/html/index.html /var/www/internal-app /var/www/internal-app/html /var/www/internal-app/html/index.html
+750 devops:www-data /var/www/beta-app
+750 devops:www-data /var/www/beta-app/html
+640 devops:www-data /var/www/beta-app/html/index.html
+750 devops:www-data /var/www/internal-app
+750 devops:www-data /var/www/internal-app/html
+640 devops:www-data /var/www/internal-app/html/index.html
+devops@halo:~$ namei -m /var/www/beta-app/html/index.html
+f: /var/www/beta-app/html/index.html
+ drwxr-xr-x /
+ drwxr-xr-x var
+ drwxr-xr-x www
+ drwxr-x--- beta-app
+ drwxr-x--- html
+ -rw-r----- index.html
+devops@halo:~$ sudo -u www-data head -n 1 /var/www/beta-app/html/index.html
+<!DOCTYPE html>
+devops@halo:~$ sudo -u www-data head -n 1 /var/www/internal-app/html/index.html
+<!DOCTYPE html>
+
+# ---------------------------------------------------------------------------
+# PHẦN 4 - Tạo file cấu hình multi-port.conf (máy chủ)
+# ---------------------------------------------------------------------------
+devops@halo:~$ sudo nano /etc/nginx/sites-available/multi-port.conf
+devops@halo:~$ cat /etc/nginx/sites-available/multi-port.conf
+# /etc/nginx/sites-available/multi-port.conf
+# Chạy song song hai trang web tĩnh trên cùng một IP, phân biệt bằng cổng.
+# Cổng 80 vẫn do site "my-web" (file riêng trong sites-enabled) phục vụ, không thay đổi.
+
+# --------------------------------------------------------------------------
+# Server block 1: Beta App - cổng 8080
+# --------------------------------------------------------------------------
+server {
+    # Lắng nghe IPv4 và IPv6 trên cổng 8080
+    listen 8080;
+    listen [::]:8080;
+
+    # Virtual host theo cổng: không phân biệt tên miền nên dùng server_name "_"
+    server_name _;
+
+    # Thư mục mã nguồn của Beta App
+    root /var/www/beta-app/html;
+    index index.html;
+
+    # Log riêng cho từng site để dễ truy vết
+    access_log /var/log/nginx/beta-app.access.log;
+    error_log  /var/log/nginx/beta-app.error.log;
+
+    location / {
+        # Trả file hoặc thư mục tương ứng, nếu không có thì trả 404
+        try_files $uri $uri/ =404;
+    }
+}
+
+# --------------------------------------------------------------------------
+# Server block 2: Internal App - cổng 8090
+# --------------------------------------------------------------------------
+server {
+    # Lắng nghe IPv4 và IPv6 trên cổng 8090
+    listen 8090;
+    listen [::]:8090;
+
+    server_name _;
+
+    # Thư mục mã nguồn của Internal App
+    root /var/www/internal-app/html;
+    index index.html;
+
+    access_log /var/log/nginx/internal-app.access.log;
+    error_log  /var/log/nginx/internal-app.error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+devops@halo:~$ ls -l /etc/nginx/sites-available/multi-port.conf
+-rw-r--r-- 1 root root 1642 Oct  2 14:15 /etc/nginx/sites-available/multi-port.conf
+devops@halo:~$ sudo ln -s /etc/nginx/sites-available/multi-port.conf /etc/nginx/sites-enabled/multi-port.conf
+devops@halo:~$ ls -l /etc/nginx/sites-enabled/
+total 0
+lrwxrwxrwx 1 root root 42 Oct  2 14:16 multi-port.conf -> /etc/nginx/sites-available/multi-port.conf
+lrwxrwxrwx 1 root root 33 Sep 29 20:41 my-web -> /etc/nginx/sites-available/my-web
+devops@halo:~$ sudo nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+devops@halo:~$ sudo systemctl reload nginx
+devops@halo:~$ sudo systemctl status nginx --no-pager
+* nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: enabled)
+     Active: active (running) since Thu 2026-10-01 19:22:48 +07; 18h ago
+       Docs: man:nginx(8)
+    Process: 18522 ExecReload=/usr/sbin/nginx -g daemon on; master_process on; -s reload (code=exited, status=0/SUCCESS)
+   Main PID: 9764 (nginx)
+      Tasks: 3 (limit: 2318)
+     Memory: 3.6M (peak: 5.2M)
+        CPU: 238ms
+     CGroup: /system.slice/nginx.service
+             |-9764 "nginx: master process /usr/sbin/nginx -g daemon on; master_process on;"
+             |-18523 "nginx: worker process"
+             `-18524 "nginx: worker process"
+
+Oct 02 14:17:36 halo systemd[1]: Reloading nginx.service - A high performance web server and a reverse proxy server...
+Oct 02 14:17:36 halo systemd[1]: Reloaded nginx.service - A high performance web server and a reverse proxy server.
+devops@halo:~$ sudo ss -tlnp | grep nginx
+LISTEN 0      511          0.0.0.0:8080      0.0.0.0:*    users:(("nginx",pid=18524,fd=7),("nginx",pid=18523,fd=7),("nginx",pid=9764,fd=7))
+LISTEN 0      511            0.0.0.0:80      0.0.0.0:*    users:(("nginx",pid=18524,fd=5),("nginx",pid=18523,fd=5),("nginx",pid=9764,fd=5))
+LISTEN 0      511          0.0.0.0:8090      0.0.0.0:*    users:(("nginx",pid=18524,fd=9),("nginx",pid=18523,fd=9),("nginx",pid=9764,fd=9))
+LISTEN 0      511             [::]:8080         [::]:*    users:(("nginx",pid=18524,fd=8),("nginx",pid=18523,fd=8),("nginx",pid=9764,fd=8))
+LISTEN 0      511               [::]:80         [::]:*    users:(("nginx",pid=18524,fd=6),("nginx",pid=18523,fd=6),("nginx",pid=9764,fd=6))
+LISTEN 0      511             [::]:8090         [::]:*    users:(("nginx",pid=18524,fd=10),("nginx",pid=18523,fd=10),("nginx",pid=9764,fd=10))
+devops@halo:~$ sudo ss -tlnp | grep -E ":(8080|8090)" | wc -l
+4
+
+# ---------------------------------------------------------------------------
+# PHẦN 5 - Kiểm tra nội bộ, rồi kiểm tra từ internet khi UFW chưa mở cổng
+# ---------------------------------------------------------------------------
+# 5.1 Trên máy chủ (kết nối qua loopback, không đi qua UFW)
+devops@halo:~$ curl -s http://127.0.0.1:8080 | grep "<title>"
+  <title>Beta App</title>
+devops@halo:~$ curl -s http://127.0.0.1:8090 | grep "<title>"
+  <title>Internal App</title>
+
+# 5.2 Trên máy cá nhân (Windows Git Bash), gọi qua IP công cộng khi UFW chưa mở 8080 và 8090
+$ curl -m 5 http://103.116.104.228:8080
+curl: (28) Connection timed out after 5002 milliseconds
+$ echo $?
+28
+$ curl -m 5 http://103.116.104.228:8090
+curl: (28) Connection timed out after 5004 milliseconds
+$ echo $?
+28
+
+# 5.3 Quay lại máy chủ, xem nhật ký UFW (ufw.log)
+devops@halo:~$ sudo grep -E "UFW BLOCK.*DPT=(8080|8090)" /var/log/ufw.log | tail -n 4
+2026-10-02T14:21:34.208415+07:00 halo kernel: [412894.331905] [UFW BLOCK] IN=eth0 OUT= MAC=fa:16:3e:5b:7c:21:fa:16:3e:0a:44:90:08:00 SRC=113.161.72.19 DST=103.116.104.228 LEN=52 TOS=0x00 PREC=0x00 TTL=108 ID=21744 DF PROTO=TCP SPT=51872 DPT=8080 WINDOW=64240 RES=0x00 SYN URGP=0
+2026-10-02T14:21:37.214809+07:00 halo kernel: [412897.337118] [UFW BLOCK] IN=eth0 OUT= MAC=fa:16:3e:5b:7c:21:fa:16:3e:0a:44:90:08:00 SRC=113.161.72.19 DST=103.116.104.228 LEN=52 TOS=0x00 PREC=0x00 TTL=108 ID=21751 DF PROTO=TCP SPT=51872 DPT=8080 WINDOW=64240 RES=0x00 SYN URGP=0
+2026-10-02T14:21:49.640226+07:00 halo kernel: [412909.763377] [UFW BLOCK] IN=eth0 OUT= MAC=fa:16:3e:5b:7c:21:fa:16:3e:0a:44:90:08:00 SRC=113.161.72.19 DST=103.116.104.228 LEN=52 TOS=0x00 PREC=0x00 TTL=108 ID=21789 DF PROTO=TCP SPT=51879 DPT=8090 WINDOW=64240 RES=0x00 SYN URGP=0
+2026-10-02T14:21:52.646511+07:00 halo kernel: [412912.769654] [UFW BLOCK] IN=eth0 OUT= MAC=fa:16:3e:5b:7c:21:fa:16:3e:0a:44:90:08:00 SRC=113.161.72.19 DST=103.116.104.228 LEN=52 TOS=0x00 PREC=0x00 TTL=108 ID=21796 DF PROTO=TCP SPT=51879 DPT=8090 WINDOW=64240 RES=0x00 SYN URGP=0
+
+# ---------------------------------------------------------------------------
+# PHẦN 6 - Mở cổng 8080 và 8090 trên UFW (máy chủ)
+# ---------------------------------------------------------------------------
+devops@halo:~$ sudo ufw allow 8080/tcp
+Rule added
+Rule added (v6)
+devops@halo:~$ sudo ufw allow 8090/tcp
+Rule added
+Rule added (v6)
+devops@halo:~$ sudo ufw status numbered
+Status: active
+
+     To                         Action      From
+     --                         ------      ----
+[ 1] 2222/tcp                   ALLOW IN    Anywhere
+[ 2] 80/tcp                     ALLOW IN    Anywhere
+[ 3] 8080/tcp                   ALLOW IN    Anywhere
+[ 4] 8090/tcp                   ALLOW IN    Anywhere
+[ 5] 2222/tcp (v6)              ALLOW IN    Anywhere (v6)
+[ 6] 80/tcp (v6)                ALLOW IN    Anywhere (v6)
+[ 7] 8080/tcp (v6)              ALLOW IN    Anywhere (v6)
+[ 8] 8090/tcp (v6)              ALLOW IN    Anywhere (v6)
+
+# ---------------------------------------------------------------------------
+# PHẦN 7 - Kiểm tra từ máy cá nhân sau khi đã mở UFW
+# (phần Cloud Firewall trình bày riêng trong do_cloud_firewall_rules.md)
+# ---------------------------------------------------------------------------
+$ curl http://103.116.104.228:8080
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beta App</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #e8f1fb; color: #1b2a41; margin: 0; padding: 0; }
+    .box { max-width: 640px; margin: 80px auto; padding: 32px; background: #ffffff; border-top: 8px solid #1f6feb; }
+    h1 { color: #1f6feb; margin-top: 0; }
+    .port { display: inline-block; padding: 4px 12px; background: #1f6feb; color: #ffffff; font-weight: bold; }
+    code { background: #eef2f7; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Beta App</h1>
+    <p>Đây là môi trường thử nghiệm Beta, được phục vụ bởi Nginx trên cổng <span class="port">8080</span>.</p>
+    <p>Mã nguồn đặt tại <code>/var/www/beta-app/html/</code>, chạy song song với Internal App (cổng 8090) trên cùng một máy chủ.</p>
+  </div>
+</body>
+</html>
+$ curl http://103.116.104.228:8090
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Internal App</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #fbeee6; color: #3b2314; margin: 0; padding: 0; }
+    .box { max-width: 640px; margin: 80px auto; padding: 32px; background: #ffffff; border-top: 8px solid #d9480f; }
+    h1 { color: #d9480f; margin-top: 0; }
+    .port { display: inline-block; padding: 4px 12px; background: #d9480f; color: #ffffff; font-weight: bold; }
+    code { background: #f7ece4; padding: 2px 6px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Internal App</h1>
+    <p>Đây là môi trường nội bộ, được phục vụ bởi Nginx trên cổng <span class="port">8090</span>.</p>
+    <p>Mã nguồn đặt tại <code>/var/www/internal-app/html/</code>, chạy song song với Beta App (cổng 8080) trên cùng một máy chủ.</p>
+  </div>
+</body>
+</html>
+$ curl -I http://103.116.104.228:8080
+HTTP/1.1 200 OK
+Server: nginx/1.24.0 (Ubuntu)
+Date: Fri, 02 Oct 2026 07:39:02 GMT
+Content-Type: text/html
+Content-Length: 995
+Last-Modified: Fri, 02 Oct 2026 07:12:41 GMT
+Connection: keep-alive
+ETag: "6abf5969-3e3"
+Accept-Ranges: bytes
+
+$ curl -I http://103.116.104.228:8090
+HTTP/1.1 200 OK
+Server: nginx/1.24.0 (Ubuntu)
+Date: Fri, 02 Oct 2026 07:39:10 GMT
+Content-Type: text/html
+Content-Length: 994
+Last-Modified: Fri, 02 Oct 2026 07:13:20 GMT
+Connection: keep-alive
+ETag: "6abf5990-3e2"
+Accept-Ranges: bytes
+
+$ curl -s http://103.116.104.228:8080 | grep -o "<title>.*</title>"
+<title>Beta App</title>
+$ curl -s http://103.116.104.228:8090 | grep -o "<title>.*</title>"
+<title>Internal App</title>
+$ curl -sI http://103.116.104.228 | head -n 1
+HTTP/1.1 200 OK
+$ curl -s -o /dev/null -w "%{http_code}\n" http://103.116.104.228:8080/khong-co.html
+404
+
+# ---------------------------------------------------------------------------
+# PHẦN 8 - Đối chiếu nhật ký truy cập của từng site (máy chủ)
+# ---------------------------------------------------------------------------
+$ ssh -p 2222 -i ~/.ssh/id_ed25519_ptit_s02 devops@103.116.104.228
+Welcome to Ubuntu 24.04.3 LTS (GNU/Linux 6.8.0-87-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+Last login: Fri Oct  2 14:03:54 2026 from 113.161.72.19
+devops@halo:~$ sudo tail -n 6 /var/log/nginx/beta-app.access.log
+[sudo] password for devops:
+127.0.0.1 - - [02/Oct/2026:14:19:07 +0700] "GET / HTTP/1.1" 200 995 "-" "curl/8.5.0"
+113.161.72.19 - - [02/Oct/2026:14:38:41 +0700] "GET / HTTP/1.1" 200 995 "-" "curl/8.15.0"
+113.161.72.19 - - [02/Oct/2026:14:39:02 +0700] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.15.0"
+113.161.72.19 - - [02/Oct/2026:14:39:31 +0700] "GET / HTTP/1.1" 200 995 "-" "curl/8.15.0"
+113.161.72.19 - - [02/Oct/2026:14:40:20 +0700] "GET /khong-co.html HTTP/1.1" 404 162 "-" "curl/8.15.0"
+devops@halo:~$ sudo tail -n 6 /var/log/nginx/internal-app.access.log
+127.0.0.1 - - [02/Oct/2026:14:19:15 +0700] "GET / HTTP/1.1" 200 994 "-" "curl/8.5.0"
+113.161.72.19 - - [02/Oct/2026:14:38:49 +0700] "GET / HTTP/1.1" 200 994 "-" "curl/8.15.0"
+113.161.72.19 - - [02/Oct/2026:14:39:10 +0700] "HEAD / HTTP/1.1" 200 0 "-" "curl/8.15.0"
+113.161.72.19 - - [02/Oct/2026:14:39:38 +0700] "GET / HTTP/1.1" 200 994 "-" "curl/8.15.0"
+devops@halo:~$ sudo wc -c /var/log/nginx/beta-app.error.log /var/log/nginx/internal-app.error.log
+0 /var/log/nginx/beta-app.error.log
+0 /var/log/nginx/internal-app.error.log
+0 total
+devops@halo:~$ sudo ufw status | grep -E "^(8080|8090)/tcp "
+8080/tcp                   ALLOW       Anywhere
+8090/tcp                   ALLOW       Anywhere
+devops@halo:~$ exit
+logout
+Connection to 103.116.104.228 closed.
+$
